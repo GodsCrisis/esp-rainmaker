@@ -1,4 +1,4 @@
-name: Build PlantWatering (ESP32-H2)
+name: Build PlantWatering (ESP32-H2 RainMaker)
 
 on:
   workflow_dispatch:
@@ -11,22 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Clone ESP-IDF (v5.1)
+      - name: Initialize ESP-IDF (use RainMaker's version)
         run: |
-          git clone --recursive https://github.com/espressif/esp-idf.git esp-idf
           cd esp-idf
-          git checkout release/v5.1
           ./install.sh esp32h2
 
       - name: Export ESP-IDF
         run: |
           source esp-idf/export.sh
 
-      - name: Build PlantWatering
+      - name: Build PlantWatering Example
         run: |
           source esp-idf/export.sh
           idf.py --project-dir examples/PlantWatering set-target esp32h2
           idf.py --project-dir examples/PlantWatering build
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: firmware
+          path: |
+            examples/PlantWatering/build/*.bin
+            examples/PlantWatering/build/bootloader/*.bin
+            examples/PlantWatering/build/partition_table/*.bin
