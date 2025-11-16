@@ -14,12 +14,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Clone ESP-IDF (v5.2)
+      - name: Clone ESP-IDF (v5.1)
         run: |
           git clone --recursive https://github.com/espressif/esp-idf.git esp-idf
           cd esp-idf
-          git checkout release/v5.2
-          ./install.sh
+          git checkout release/v5.1
+          ./install.sh esp32h2
 
       - name: Export ESP-IDF
         run: |
