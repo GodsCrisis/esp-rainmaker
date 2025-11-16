@@ -1,6 +1,7 @@
 name: Build ESP32-H2 RainMaker Device
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
     paths:
