@@ -1,5 +1,5 @@
-/*  LED Lightbulb demo implementation using RGB LED
-
+/* LED Light Example - Modified for GPIO10 PWM Output
+   
    This example code is in the Public Domain (or CC0 licensed, at your option.)
 
    Unless required by applicable law or agreed to in writing, this
@@ -8,20 +8,12 @@
 */
 
 #include <sdkconfig.h>
-#include <esp_log.h>
 #include <iot_button.h>
-#include <button_gpio.h>
 #include <esp_rmaker_core.h>
 #include <esp_rmaker_standard_types.h>
 #include <esp_rmaker_standard_params.h>
-
 #include <app_reset.h>
-
-#if CONFIG_IDF_TARGET_ESP32C2
-#include <ledc_driver.h>
-#else
 #include <ws2812_led.h>
-#endif
 
 #include "app_priv.h"
 
@@ -29,124 +21,148 @@
 #define BUTTON_GPIO          CONFIG_EXAMPLE_BOARD_BUTTON_GPIO
 #define BUTTON_ACTIVE_LEVEL  0
 
-#define WIFI_RESET_BUTTON_TIMEOUT       3
-#define FACTORY_RESET_BUTTON_TIMEOUT    10
+/* This is the GPIO on which the power will be set */
+#define OUTPUT_GPIO    10  // Changed from CONFIG_EXAMPLE_OUTPUT_GPIO to GPIO10
 
-static uint16_t g_hue = DEFAULT_HUE;
-static uint16_t g_saturation = DEFAULT_SATURATION;
-static uint16_t g_value = DEFAULT_BRIGHTNESS;
-static bool g_power = DEFAULT_POWER;
+static bool g_power_state = DEFAULT_POWER;
+static float g_hue = DEFAULT_HUE;
+static float g_saturation = DEFAULT_SATURATION;
+static float g_value = DEFAULT_BRIGHTNESS;
 
-#if CONFIG_IDF_TARGET_ESP32C2
-esp_err_t app_light_set_led(uint32_t hue, uint32_t saturation, uint32_t brightness)
+/**************************************************************************************************
+ *
+ * PWM (LEDC) initialization for GPIO10
+ *
+ **************************************************************************************************/
+#include <driver/ledc.h>
+
+#define PWM_CHANNEL     LEDC_CHANNEL_0
+#define PWM_TIMER       LEDC_TIMER_0
+#define PWM_MODE        LEDC_LOW_SPEED_MODE
+#define PWM_RESOLUTION  LEDC_TIMER_10_BIT  // 0-1023
+#define PWM_FREQUENCY   1000               // 1kHz
+
+static void app_indicator_set(bool state)
 {
-    /* Whenever this function is called, light power will be ON */
-    if (!g_power) {
-        g_power = true;
-        esp_rmaker_param_update_and_report(
-                esp_rmaker_device_get_param_by_type(light_device, ESP_RMAKER_PARAM_POWER),
-                esp_rmaker_bool(g_power));
-    }
-    ledc_set_hsv(hue, saturation, brightness);
-    return ESP_OK;
+    /* No indicator needed for GPIO output */
 }
 
-esp_err_t app_light_set_power(bool power)
+static void app_indicator_init(void)
 {
-    g_power = power;
-    if (power) {
-        ledc_set_hsv(g_hue, g_saturation, g_value);
+    /* Initialize PWM for GPIO10 */
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode       = PWM_MODE,
+        .duty_resolution  = PWM_RESOLUTION,
+        .timer_num        = PWM_TIMER,
+        .freq_hz          = PWM_FREQUENCY,
+        .clk_cfg          = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer);
+
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num       = OUTPUT_GPIO,
+        .speed_mode     = PWM_MODE,
+        .channel        = PWM_CHANNEL,
+        .intr_type      = LEDC_INTR_DISABLE,
+        .timer_sel      = PWM_TIMER,
+        .duty           = 0,
+        .hpoint         = 0
+    };
+    ledc_channel_config(&ledc_channel);
+}
+
+static void gpio10_set_duty(uint32_t duty)
+{
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL, duty);
+    ledc_update_duty(PWM_MODE, PWM_CHANNEL);
+}
+
+esp_err_t app_driver_set_state(bool state)
+{
+    g_power_state = state;
+    
+    if (state) {
+        // Turn ON - apply current brightness
+        uint32_t duty = (g_value * 1023) / 100;  // Convert 0-100 to 0-1023
+        gpio10_set_duty(duty);
     } else {
-        ledc_clear();
+        // Turn OFF
+        gpio10_set_duty(0);
     }
+    
     return ESP_OK;
 }
 
-esp_err_t app_light_init(void)
+bool app_driver_get_state(void)
 {
-    ledc_init();
-    return ESP_OK;
-}
-#else
-esp_err_t app_light_set_led(uint32_t hue, uint32_t saturation, uint32_t brightness)
-{
-    /* Whenever this function is called, light power will be ON */
-    if (!g_power) {
-        g_power = true;
-        esp_rmaker_param_update_and_report(
-                esp_rmaker_device_get_param_by_type(light_device, ESP_RMAKER_PARAM_POWER),
-                esp_rmaker_bool(g_power));
-    }
-    return ws2812_led_set_hsv(hue, saturation, brightness);
+    return g_power_state;
 }
 
-esp_err_t app_light_set_power(bool power)
+esp_err_t app_driver_set_brightness(uint16_t brightness)
 {
-    g_power = power;
-    if (power) {
-        ws2812_led_set_hsv(g_hue, g_saturation, g_value);
-    } else {
-        ws2812_led_clear();
+    if (brightness > 100) {
+        brightness = 100;
     }
-    return ESP_OK;
-}
-
-esp_err_t app_light_init(void)
-{
-    esp_err_t err = ws2812_led_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (g_power) {
-        ws2812_led_set_hsv(g_hue, g_saturation, g_value);
-    } else {
-        ws2812_led_clear();
-    }
-    return ESP_OK;
-}
-#endif
-
-esp_err_t app_light_set_brightness(uint16_t brightness)
-{
+    
     g_value = brightness;
-    return app_light_set_led(g_hue, g_saturation, g_value);
-}
-esp_err_t app_light_set_hue(uint16_t hue)
-{
-    g_hue = hue;
-    return app_light_set_led(g_hue, g_saturation, g_value);
-}
-esp_err_t app_light_set_saturation(uint16_t saturation)
-{
-    g_saturation = saturation;
-    return app_light_set_led(g_hue, g_saturation, g_value);
+    
+    // Apply if currently ON
+    if (g_power_state) {
+        uint32_t duty = (brightness * 1023) / 100;
+        gpio10_set_duty(duty);
+    }
+    
+    return ESP_OK;
 }
 
-static void push_btn_cb(void *arg, void *data)
+uint16_t app_driver_get_brightness(void)
 {
-    app_light_set_power(!g_power);
+    return g_value;
+}
+
+esp_err_t app_driver_set_hue(uint16_t hue)
+{
+    // Hue not used for simple PWM output
+    g_hue = hue;
+    return ESP_OK;
+}
+
+uint16_t app_driver_get_hue(void)
+{
+    return g_hue;
+}
+
+esp_err_t app_driver_set_saturation(uint16_t saturation)
+{
+    // Saturation not used for simple PWM output
+    g_saturation = saturation;
+    return ESP_OK;
+}
+
+uint16_t app_driver_get_saturation(void)
+{
+    return g_saturation;
+}
+
+static void push_btn_cb(void *arg)
+{
+    bool new_state = !g_power_state;
+    app_driver_set_state(new_state);
     esp_rmaker_param_update_and_report(
             esp_rmaker_device_get_param_by_type(light_device, ESP_RMAKER_PARAM_POWER),
-            esp_rmaker_bool(g_power));
+            esp_rmaker_bool(new_state));
 }
 
 void app_driver_init()
 {
-    app_light_init();
-    button_config_t btn_cfg = {
-        .long_press_time = 0,  /* Use default */
-        .short_press_time = 0, /* Use default */
-    };
-    button_gpio_config_t gpio_cfg = {
-        .gpio_num = BUTTON_GPIO,
-        .active_level = BUTTON_ACTIVE_LEVEL,
-        .enable_power_save = false,
-    };
-    button_handle_t btn_handle = NULL;
-    if (iot_button_new_gpio_device(&btn_cfg, &gpio_cfg, &btn_handle) == ESP_OK && btn_handle) {
-        /* Register a callback for a button single click event */
-        iot_button_register_cb(btn_handle, BUTTON_SINGLE_CLICK, NULL, push_btn_cb, NULL);
-        /* Register Wi-Fi reset and factory reset functionality on same button */
-        app_reset_button_register(btn_handle, WIFI_RESET_BUTTON_TIMEOUT, FACTORY_RESET_BUTTON_TIMEOUT);
+    button_handle_t btn_handle = iot_button_create(BUTTON_GPIO, BUTTON_ACTIVE_LEVEL);
+    if (btn_handle) {
+        iot_button_set_evt_cb(btn_handle, BUTTON_CB_RELEASE, push_btn_cb, "PUSH");
     }
+
+    /* Initialize indicator (PWM on GPIO10) */
+    app_indicator_init();
+    
+    /* Set initial state */
+    app_driver_set_state(DEFAULT_POWER);
 }
