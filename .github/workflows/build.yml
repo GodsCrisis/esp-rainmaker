@@ -1,40 +1,32 @@
-name: Build ESP32-H2 RainMaker Device
+name: Build PlantWatering (ESP32-H2)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
-    paths:
-      - "examples/PlantWatering/**"
-      - ".github/workflows/build.yml"
+    branches:
+      - "**"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y git wget flex bison gperf python3 python3-pip
+      - name: Clone ESP-IDF (v5.2)
+        run: |
+          git clone --recursive https://github.com/espressif/esp-idf.git esp-idf
+          cd esp-idf
+          git checkout release/v5.2
+          ./install.sh
 
-    - name: Clone ESP-IDF
-      run: |
-        git clone --recursive https://github.com/espressif/esp-idf.git
-        cd esp-idf
-        git checkout release/v5.2
-        ./install.sh
+      - name: Export ESP-IDF
+        run: |
+          source esp-idf/export.sh
 
-    - name: Export IDF
-      run: |
-        . ./esp-idf/export.sh
-      working-directory: esp-idf
-
-    - name: Build PlantWatering
-      run: |
-        . ./esp-idf/export.sh
-        idf.py --project-dir ./examples/PlantWatering set-target esp32h2
-        idf.py --project-dir ./examples/PlantWatering build
+      - name: Build PlantWatering
+        run: |
+          source esp-idf/export.sh
+          idf.py --project-dir examples/PlantWatering set-target esp32h2
+          idf.py --project-dir examples/PlantWatering build
