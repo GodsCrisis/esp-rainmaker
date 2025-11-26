@@ -11,29 +11,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Your Repository
         uses: actions/checkout@v4
 
-      - name: Initialize ESP-IDF (use RainMaker's version)
+      - name: Clone Official RainMaker
         run: |
-          cd esp-idf
+          git clone https://github.com/espressif/esp-rainmaker.git rainmaker
+          cd rainmaker
+          git submodule update --init --recursive
+
+      - name: Copy Your Example Into RainMaker
+        run: |
+          rm -rf rainmaker/examples/PlantWatering
+          cp -r examples/PlantWatering rainmaker/examples/PlantWatering
+
+      - name: Install ESP-IDF (RainMaker's bundled version)
+        run: |
+          cd rainmaker/esp-idf
           ./install.sh esp32h2
 
       - name: Export ESP-IDF
         run: |
-          source esp-idf/export.sh
+          source rainmaker/esp-idf/export.sh
 
       - name: Build PlantWatering Example
         run: |
-          source esp-idf/export.sh
-          idf.py --project-dir examples/PlantWatering set-target esp32h2
-          idf.py --project-dir examples/PlantWatering build
+          source rainmaker/esp-idf/export.sh
+          cd rainmaker/examples/PlantWatering
+          idf.py set-target esp32h2
+          idf.py build
 
-      - name: Upload Artifacts
+      - name: Upload Firmware Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firmware
           path: |
-            examples/PlantWatering/build/*.bin
-            examples/PlantWatering/build/bootloader/*.bin
-            examples/PlantWatering/build/partition_table/*.bin
+            rainmaker/examples/PlantWatering/build/*.bin
+            rainmaker/examples/PlantWatering/build/bootloader/*.bin
+            rainmaker/examples/PlantWatering/build/partition_table/*.bin
