@@ -1,4 +1,4 @@
-/* PWM Driver for GPIO10 – RainMaker Light Device */
+/* PWM Driver for GPIO10 - RainMaker Light Device */
 
 #include <sdkconfig.h>
 #include <iot_button.h>
@@ -9,14 +9,14 @@
 
 #include "app_priv.h"
 
-/* Button for toggling power */
-#define BUTTON_GPIO          CONFIG_EXAMPLE_BOARD_BUTTON_GPIO
+
+#define BUTTON_GPIO          9
 #define BUTTON_ACTIVE_LEVEL  0
 
-/* Output pin */
+
 #define OUTPUT_GPIO          10
 
-/* PWM (LEDC) configuration */
+
 #include <driver/ledc.h>
 
 #define PWM_CHANNEL      LEDC_CHANNEL_0
@@ -30,7 +30,7 @@ static float g_brightness = DEFAULT_BRIGHTNESS;
 static float g_hue = DEFAULT_HUE;
 static float g_saturation = DEFAULT_SATURATION;
 
-/* PWM helpers */
+
 static void gpio10_set_duty(uint32_t duty)
 {
     ledc_set_duty(PWM_MODE, PWM_CHANNEL, duty);
@@ -102,8 +102,8 @@ uint16_t app_driver_get_brightness(void) { return g_brightness; }
 uint16_t app_driver_get_hue(void) { return g_hue; }
 uint16_t app_driver_get_saturation(void) { return g_saturation; }
 
-/* Button toggles Power */
-static void push_btn_cb(void *arg)
+
+static void push_btn_cb(void *button_handle, void *usr_data)
 {
     bool new_state = !g_power_state;
     app_driver_set_state(new_state);
@@ -118,9 +118,18 @@ void app_driver_init()
 {
     pwm_init();
 
-    button_handle_t btn = iot_button_create(BUTTON_GPIO, BUTTON_ACTIVE_LEVEL);
-    if (btn) {
-        iot_button_set_evt_cb(btn, BUTTON_CB_RELEASE, push_btn_cb, NULL);
+    button_config_t btn_cfg = {
+        .type = BUTTON_TYPE_GPIO,
+        .gpio_button_config = {
+            .gpio_num = BUTTON_GPIO,
+            .active_level = BUTTON_ACTIVE_LEVEL,
+        },
+    };
+    
+    button_handle_t btn_handle = NULL;
+    esp_err_t err = iot_button_create(&btn_cfg, &btn_handle);
+    if (err == ESP_OK && btn_handle) {
+        iot_button_register_cb(btn_handle, BUTTON_PRESS_DOWN, push_btn_cb, NULL);
     }
 
     app_driver_set_state(DEFAULT_POWER);
