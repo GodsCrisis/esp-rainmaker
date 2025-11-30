@@ -23,14 +23,14 @@ void app_main(void)
         nvs_flash_init();
     }
 
-    /* RainMaker node */
+
     esp_rmaker_node_t *node = esp_rmaker_node_init("PlantWateringDevice", "Light");
     if (!node) {
         ESP_LOGE(TAG, "Node init failed");
         return;
     }
 
-    /* Device: Light with Brightness + Hue + Saturation */
+
     light_device = esp_rmaker_device_create("PWM Light", ESP_RMAKER_DEVICE_LIGHT, NULL);
 
     esp_rmaker_device_add_param(light_device,
@@ -47,14 +47,14 @@ void app_main(void)
 
     esp_rmaker_node_add_device(node, light_device);
 
-    /* Driver */
+
     app_driver_init();
 
-    /* Start RainMaker */
+
     esp_rmaker_start();
 
-    /* Enable Reset (long-press) */
-    app_reset_button_register(CONFIG_EXAMPLE_BOARD_BUTTON_GPIO, 0);
 
-    ESP_LOGI(TAG, "PlantWatering Matter/PWM device started!");
+    app_reset_button_register(9, 0);
+
+    ESP_LOGI(TAG, "PlantWatering PWM device started!");
 }
