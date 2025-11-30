@@ -14,6 +14,29 @@ static const char *TAG = "app_main";
 
 esp_rmaker_device_t *light_device;
 
+/* Callback for parameter changes from RainMaker app */
+static esp_err_t write_cb(const esp_rmaker_device_t *device, const esp_rmaker_param_t *param,
+            const esp_rmaker_param_val_t val, void *priv_data, esp_rmaker_write_ctx_t *ctx)
+{
+    const char *param_name = esp_rmaker_param_get_name(param);
+    
+    if (strcmp(param_name, ESP_RMAKER_DEF_POWER_NAME) == 0) {
+        app_driver_set_state(val.val.b);
+        esp_rmaker_param_update_and_report(param, val);
+    } else if (strcmp(param_name, ESP_RMAKER_DEF_BRIGHTNESS_NAME) == 0) {
+        app_driver_set_brightness(val.val.i);
+        esp_rmaker_param_update_and_report(param, val);
+    } else if (strcmp(param_name, ESP_RMAKER_DEF_HUE_NAME) == 0) {
+        app_driver_set_hue(val.val.i);
+        esp_rmaker_param_update_and_report(param, val);
+    } else if (strcmp(param_name, ESP_RMAKER_DEF_SATURATION_NAME) == 0) {
+        app_driver_set_saturation(val.val.i);
+        esp_rmaker_param_update_and_report(param, val);
+    }
+    
+    return ESP_OK;
+}
+
 void app_main(void)
 {
     esp_err_t err = nvs_flash_init();
