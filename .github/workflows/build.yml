@@ -86,36 +86,36 @@ jobs:
           df -h
       
 
-      - name: Build Firmware (debug mode)
+      - name: Build Firmware (Release)
         run: |
-          set -euxo pipefail
+          set +e
+          
+          echo "Activating ESP-IDF environment..."
           cd $GITHUB_WORKSPACE/rainmaker/esp-idf
           source ./export.sh
-
+          
           export IDF_TARGET=esp32h2
           export RMAKER_PATH=$GITHUB_WORKSPACE
+          export CMAKE_BUILD_TYPE=Release
+          
+          echo "Using IDF_TARGET=$IDF_TARGET"
+          echo "Using CMAKE_BUILD_TYPE=$CMAKE_BUILD_TYPE"
 
           cd $GITHUB_WORKSPACE/examples/PlantWatering
 
           idf.py set-target esp32h2
-          idf.py fullclean || true
+          idf.py fullclean
+          
+          idf.py build -DCMAKE_BUILD_TYPE=Release
+          build_status=$?
+          
+          echo "==== BUILD STATUS CODE: $build_status ===="
 
-
-          idf.py build-bootloader VERBOSE=1 2>&1 | tee build_bootloader.log || true
-          tail -n 200 build_bootloader.log || true
-
-
-          PY=/home/runner/.espressif/python_env/idf5.3_py3.11_env/bin/python
-          echo "Using python: $PY"
-          $PY -V || true
-          # wywołaj exact script tak jak robi to IDF - pokaże stack trace
-          python_cmd="$PY $GITHUB_WORKSPACE/rainmaker/esp-idf/components/partition_table/check_sizes.py --offset 0xc000 bootloader 0x0 build/bootloader/bootloader.bin"
-          echo "Running: $python_cmd"
-          $python_cmd 2>&1 | tee check_sizes_output.log || (echo "check_sizes.py FAILED, exit:$?"; tail -n 200 check_sizes_output.log; exit 1)
-
-
-          idf.py build VERBOSE=1 2>&1 | tee full_build.log
-          tail -n 200 full_build.log || true
+          if [ $build_status -ne 0 ]; then
+            tail -n 150 build/log/idf_py_stderr_output_* 2>/dev/null || true
+            tail -n 50 build/log/idf_py_stdout_output_* 2>/dev/null || true
+            exit $build_status
+          fi
           
 
       - name: Debug locate firmware binaries
