@@ -1,3 +1,12 @@
 [submodule "components/rmaker_common"]
-	path = components/rmaker_common
-	url = ../esp-rainmaker-common.git
+    path = components/rmaker_common
+    url = https://github.com/espressif/esp-rainmaker-common.git
+
+[submodule "rainmaker/esp-idf"]
+    path = rainmaker/esp-idf
+    url = https://github.com/espressif/esp-idf.git
+    branch = release/v5.3
+
+[submodule "components/esp-insights"]
+    path = components/esp-insights
+    url = https://github.com/espressif/esp-insights.git
