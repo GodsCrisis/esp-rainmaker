@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+
       - name: Free up disk space
         run: |
           echo "=== Before cleanup ==="
@@ -35,16 +36,14 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
 
-      - name: Ensure submodules are initialized
+      - name: Setup RainMaker components
         run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive --depth 1
-          echo "Submodules initialized"
-          ls -la rainmaker/
+          echo "Cloning required RainMaker components..."
+          git clone --depth 1 https://github.com/espressif/esp-rainmaker-common.git components/rmaker_common
+          git clone --depth 1 https://github.com/espressif/esp-insights.git components/esp-insights
+          echo "Components cloned successfully"
       
 
       - name: Install system dependencies
@@ -71,13 +70,18 @@ jobs:
           path: ~/.espressif
           key: esp-idf-tools-${{ runner.os }}-rainmaker-esp32h2
           
-      # Install ESP-IDF tools for ESP32-H2
-      - name: Install ESP-IDF tools
+
+      - name: Install ESP-IDF v5.3
         run: |
-          cd rainmaker/esp-idf
+          mkdir -p rainmaker
+          cd rainmaker
+          echo "Cloning ESP-IDF v5.3..."
+          git clone --recursive --shallow-submodules --branch release/v5.3 --depth 1 https://github.com/espressif/esp-idf.git esp-idf
+          cd esp-idf
           echo "Installing ESP-IDF tools for ESP32-H2..."
           ./install.sh esp32h2
           echo "ESP-IDF installation complete"
+          rm -rf .git
           echo "=== Disk space after ESP-IDF install ==="
           df -h
       
@@ -212,7 +216,6 @@ jobs:
             examples/PlantWatering/build/*.elf
             examples/PlantWatering/build/*.map
             examples/PlantWatering/build/FLASH_INSTRUCTIONS.txt
-            
 
       - name: Build summary
         if: always()
