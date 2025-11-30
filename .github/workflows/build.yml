@@ -1,42 +1,257 @@
-name: Build PlantWatering (ESP32-H2 RainMaker)
+name: Build PlantWatering ESP32-H2 RainMaker
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - "**"
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout Repository (with submodules)
+      - name: Free up disk space
+        run: |
+          echo "=== Before cleanup ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet \
+                /usr/local/lib/android \
+                /opt/ghc \
+                /usr/local/share/boost \
+                /usr/local/lib/node_modules \
+                /opt/hostedtoolcache \
+                "$AGENT_TOOLSDIRECTORY"
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' '^php.*' \
+              azure-cli google-chrome-stable firefox powershell mono-devel \
+              2>/dev/null || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          docker system prune -af || true
+          echo "=== After cleanup ==="
+          df -h
+          
+
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install ESP-IDF
-        working-directory: rainmaker/esp-idf
+
+      - name: Ensure submodules are initialized
         run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1
+          echo "Submodules initialized"
+          ls -la rainmaker/
+      
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git wget flex bison gperf python3 python3-pip python3-venv \
+            cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0 \
+            git-lfs pkg-config libglib2.0-dev libpixman-1-dev libgcrypt20-dev
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+
+      - name: Disable cache compression
+        run: |
+          echo "ACTIONS_CACHE_COMPRESSION_LEVEL=0" >> $GITHUB_ENV
+          
+
+      - name: Cache ESP-IDF tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.espressif
+          key: esp-idf-tools-${{ runner.os }}-rainmaker-esp32h2
+          
+      # Install ESP-IDF tools for ESP32-H2
+      - name: Install ESP-IDF tools
+        run: |
+          cd rainmaker/esp-idf
+          echo "Installing ESP-IDF tools for ESP32-H2..."
           ./install.sh esp32h2
+          echo "ESP-IDF installation complete"
+          echo "=== Disk space after ESP-IDF install ==="
+          df -h
+      
 
-      - name: Export ESP-IDF
-        working-directory: rainmaker/esp-idf
+      - name: Build Firmware
         run: |
-          . export.sh
+          set +e
+          
+          echo "Activating ESP-IDF environment..."
+          cd $GITHUB_WORKSPACE/rainmaker/esp-idf
+          source ./export.sh
+          
+          export IDF_TARGET=esp32h2
+          export RMAKER_PATH=$GITHUB_WORKSPACE
+          
+          echo "Using IDF_TARGET=$IDF_TARGET"
+          echo "RMAKER_PATH=$RMAKER_PATH"
+          
+          cd $GITHUB_WORKSPACE/examples/PlantWatering
+          
+          echo "Project structure:"
+          ls -la
+          echo "Main directory:"
+          ls -la main/
+          
+          echo "=== Disk space before build ==="
+          df -h
 
-      - name: Build PlantWatering Example
-        working-directory: examples/PlantWatering
-        run: |
-          . ../../rainmaker/esp-idf/export.sh
           idf.py set-target esp32h2
+          idf.py fullclean
           idf.py build
+          build_status=$?
 
-      - name: Upload Artifacts
+          echo "==== BUILD STATUS CODE: $build_status ===="
+
+          echo "=== Disk space after build ==="
+          df -h
+
+          if [ $build_status -ne 0 ]; then
+            echo "==== BUILD FAILED, SHOWING LAST 100 LINES OF LOG ===="
+            tail -n 100 build/log/idf_py_stderr_output_* 2>/dev/null || true
+            tail -n 50 build/log/idf_py_stdout_output_* 2>/dev/null || true
+            exit $build_status
+          fi
+          
+
+      - name: Debug locate firmware binaries
+        run: |
+          echo "Searching for firmware binaries..."
+          find examples/PlantWatering/build -type f \( -name "*.bin" -o -name "*.elf" \) 2>/dev/null | sort
+          
+
+      - name: Prepare firmware info file
+        run: |
+          mkdir -p examples/PlantWatering/build
+
+          BUILD_DATE=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          cat > examples/PlantWatering/build/FLASH_INSTRUCTIONS.txt << EOF
+          ESP32-H2 PlantWatering RainMaker - Flash Instructions
+          ======================================================
+
+          Build Information:
+          ------------------
+          Build Date: ${BUILD_DATE}
+          Commit: ${{ github.sha }}
+          Target: ESP32-H2
+          Framework: ESP RainMaker
+
+          Flash Commands:
+          ---------------
+
+          Method 1 - Using idf.py:
+          cd examples/PlantWatering
+          idf.py -p /dev/ttyUSB0 flash monitor
+
+          Method 2 - Using esptool.py:
+          esptool.py -p /dev/ttyUSB0 -b 460800 --chip esp32h2 write_flash 0x0 bootloader.bin 0xc000 partition-table.bin 0x20000 PlantWatering.bin
+
+          Method 3 - ESP Launchpad (Web):
+          1. Visit https://espressif.github.io/esp-launchpad/
+          2. Connect ESP32-H2 via USB
+          3. Upload binaries:
+             - 0x0: bootloader.bin
+             - 0xc000: partition-table.bin
+             - 0x20000: PlantWatering.bin
+
+          Binaries:
+          ---------
+          - bootloader.bin (offset 0x0)
+          - partition-table.bin (offset 0xc000)
+          - PlantWatering.bin (offset 0x20000)
+          - PlantWatering.elf (debug symbols)
+
+          Setup:
+          ------
+          1. Flash firmware
+          2. Download ESP RainMaker app
+          3. Add device via QR code/provisioning
+          4. Control GPIO10 output (0-100% brightness = 0V-3.3V)
+
+          Features:
+          ---------
+          - GPIO10 PWM output (1kHz, 10-bit)
+          - Power ON/OFF control
+          - Brightness 0-100%
+          - Thread network connectivity
+
+          Troubleshooting:
+          ----------------
+          - Flash fails: Try -b 115200
+          - Device not found: Check Thread network
+          - Monitor: idf.py -p /dev/ttyUSB0 monitor
+          EOF
+          
+
+      - name: Debug build output
+        run: |
+          echo "Build output files:"
+          ls -lh examples/PlantWatering/build/*.bin 2>/dev/null || echo "No .bin files found"
+          ls -lh examples/PlantWatering/build/bootloader/*.bin 2>/dev/null || echo "No bootloader"
+          ls -lh examples/PlantWatering/build/partition_table/*.bin 2>/dev/null || echo "No partition table"
+          
+
+      - name: Upload firmware artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: firmware
+          name: PlantWatering_firmware
           path: |
             examples/PlantWatering/build/*.bin
-            examples/PlantWatering/build/**/*.bin
+            examples/PlantWatering/build/bootloader/*.bin
+            examples/PlantWatering/build/partition_table/*.bin
+            examples/PlantWatering/build/*.elf
+            examples/PlantWatering/build/*.map
+            examples/PlantWatering/build/FLASH_INSTRUCTIONS.txt
+            
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "# Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "## Build Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Project Details" >> $GITHUB_STEP_SUMMARY
+            echo "- **Target:** ESP32-H2" >> $GITHUB_STEP_SUMMARY
+            echo "- **Project:** PlantWatering GPIO10 Controller" >> $GITHUB_STEP_SUMMARY
+            echo "- **Framework:** ESP RainMaker" >> $GITHUB_STEP_SUMMARY
+            echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Build Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Features" >> $GITHUB_STEP_SUMMARY
+            echo "- GPIO10 PWM output (1kHz, 10-bit)" >> $GITHUB_STEP_SUMMARY
+            echo "- ON/OFF + Brightness control" >> $GITHUB_STEP_SUMMARY
+            echo "- RainMaker cloud connectivity" >> $GITHUB_STEP_SUMMARY
+            echo "- Thread network support" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Download" >> $GITHUB_STEP_SUMMARY
+            echo "Firmware available in **Artifacts** section above" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Quick Flash" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "cd examples/PlantWatering" >> $GITHUB_STEP_SUMMARY
+            echo "idf.py -p /dev/ttyUSB0 flash monitor" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Build Status: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check build logs above for error details" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Disk Space" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          df -h >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
