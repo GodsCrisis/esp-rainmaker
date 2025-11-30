@@ -86,46 +86,36 @@ jobs:
           df -h
       
 
-      - name: Build Firmware
+      - name: Build Firmware (debug mode)
         run: |
-          set +e
-          
-          echo "Activating ESP-IDF environment..."
+          set -euxo pipefail
           cd $GITHUB_WORKSPACE/rainmaker/esp-idf
           source ./export.sh
-          
+
           export IDF_TARGET=esp32h2
           export RMAKER_PATH=$GITHUB_WORKSPACE
-          
-          echo "Using IDF_TARGET=$IDF_TARGET"
-          echo "RMAKER_PATH=$RMAKER_PATH"
-          
+
           cd $GITHUB_WORKSPACE/examples/PlantWatering
-          
-          echo "Project structure:"
-          ls -la
-          echo "Main directory:"
-          ls -la main/
-          
-          echo "=== Disk space before build ==="
-          df -h
 
           idf.py set-target esp32h2
-          idf.py fullclean
-          idf.py build
-          build_status=$?
+          idf.py fullclean || true
 
-          echo "==== BUILD STATUS CODE: $build_status ===="
 
-          echo "=== Disk space after build ==="
-          df -h
+          idf.py build-bootloader VERBOSE=1 2>&1 | tee build_bootloader.log || true
+          tail -n 200 build_bootloader.log || true
 
-          if [ $build_status -ne 0 ]; then
-            echo "==== BUILD FAILED, SHOWING LAST 100 LINES OF LOG ===="
-            tail -n 100 build/log/idf_py_stderr_output_* 2>/dev/null || true
-            tail -n 50 build/log/idf_py_stdout_output_* 2>/dev/null || true
-            exit $build_status
-          fi
+
+          PY=/home/runner/.espressif/python_env/idf5.3_py3.11_env/bin/python
+          echo "Using python: $PY"
+          $PY -V || true
+          # wywołaj exact script tak jak robi to IDF - pokaże stack trace
+          python_cmd="$PY $GITHUB_WORKSPACE/rainmaker/esp-idf/components/partition_table/check_sizes.py --offset 0xc000 bootloader 0x0 build/bootloader/bootloader.bin"
+          echo "Running: $python_cmd"
+          $python_cmd 2>&1 | tee check_sizes_output.log || (echo "check_sizes.py FAILED, exit:$?"; tail -n 200 check_sizes_output.log; exit 1)
+
+
+          idf.py build VERBOSE=1 2>&1 | tee full_build.log
+          tail -n 200 full_build.log || true
           
 
       - name: Debug locate firmware binaries
