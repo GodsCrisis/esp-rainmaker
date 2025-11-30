@@ -7,7 +7,6 @@
 #include <esp_rmaker_standard_types.h>
 #include <esp_rmaker_standard_params.h>
 #include <esp_rmaker_node.h>
-#include <app_reset.h>
 
 #include "app_priv.h"
 
@@ -23,14 +22,14 @@ void app_main(void)
         nvs_flash_init();
     }
 
-
+    /* RainMaker node */
     esp_rmaker_node_t *node = esp_rmaker_node_init("PlantWateringDevice", "Light");
     if (!node) {
         ESP_LOGE(TAG, "Node init failed");
         return;
     }
 
-
+    /* Device: Light with Brightness + Hue + Saturation */
     light_device = esp_rmaker_device_create("PWM Light", ESP_RMAKER_DEVICE_LIGHT, NULL);
 
     esp_rmaker_device_add_param(light_device,
@@ -47,14 +46,11 @@ void app_main(void)
 
     esp_rmaker_node_add_device(node, light_device);
 
-
+    /* Driver */
     app_driver_init();
 
-
+    /* Start RainMaker */
     esp_rmaker_start();
 
-
-    app_reset_button_register(9, 0);
-
-    ESP_LOGI(TAG, "PlantWatering PWM device started!");
+    ESP_LOGI(TAG, "PlantWatering PWM device started - Control via RainMaker app");
 }
